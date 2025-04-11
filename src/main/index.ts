@@ -2,6 +2,10 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { exec } from 'node:child_process'
+import { createExpressApp } from './express'
+
+const DOCKER_IMAGE = 'specutron-speculos'
 
 function createWindow(): void {
   // Create the browser window.
@@ -30,6 +34,7 @@ function createWindow(): void {
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -53,6 +58,7 @@ app.whenReady().then(() => {
   ipcMain.on('ping', () => console.log('pong'))
 
   createWindow()
+  createExpressApp()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
@@ -65,6 +71,8 @@ app.whenReady().then(() => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  // exec(`docker kill speculos`)
+
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -72,3 +80,30 @@ app.on('window-all-closed', () => {
 
 // In this file you can include the rest of your app"s specific main process
 // code. You can also put them in separate files and require them here.
+ipcMain.handle('stop-speculos', async () => {
+  return new Promise((resolve) => {
+    exec(`docker kill ${DOCKER_IMAGE}`, (error, stdout, stderr) => {
+      if (error) {
+        resolve(`Error: ${stderr}`)
+      } else {
+        resolve(stdout)
+      }
+    })
+  })
+})
+
+ipcMain.handle('start-speculos', async (_, app) => {
+  console.log('Starting speculos')
+  return new Promise((resolve) => {
+    exec(
+      `docker run --name ${DOCKER_IMAGE} --rm -v ./apps:/speculos/apps --publish 5000:5000 --publish 3337:3337 speculos --display headless --api-port 5000 --vnc-port 3337 apps/${app}`,
+      (error, stdout, stderr) => {
+        if (error) {
+          resolve(`Error: ${stderr}`)
+        } else {
+          resolve(stdout)
+        }
+      }
+    )
+  })
+})
